@@ -76,9 +76,9 @@ class SetTypeParser extends TypeSpecificationParser
         // Check the index type and set the element count.
         if (form == SUBRANGE) {
             Integer minValue =
-                (Integer) setType.getAttribute(SUBRANGE_MIN_VALUE);
+                (Integer) elementType.getAttribute(SUBRANGE_MIN_VALUE);
             Integer maxValue =
-                (Integer) setType.getAttribute(SUBRANGE_MAX_VALUE);
+                (Integer) elementType.getAttribute(SUBRANGE_MAX_VALUE);
 
             if ((minValue != null) && (maxValue != null)) {
                 count = maxValue - minValue + 1;
@@ -86,7 +86,7 @@ class SetTypeParser extends TypeSpecificationParser
         }
         else if (form == ENUMERATION) {
             ArrayList<SymTabEntry> constants = (ArrayList<SymTabEntry>)
-                setType.getAttribute(ENUMERATION_CONSTANTS);
+                elementType.getAttribute(ENUMERATION_CONSTANTS);
             count = constants.size();
         }
         else {
