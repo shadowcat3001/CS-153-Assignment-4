@@ -121,7 +121,6 @@ public class TypeSpecImpl
      */
     public TypeSpec baseType()
     {
-        return form == SUBRANGE ? (TypeSpec) getAttribute(SUBRANGE_BASE_TYPE)
-                                : this;
+    	return (form == SUBRANGE) ? (TypeSpec) getAttribute(SUBRANGE_BASE_TYPE) : this;
     }
 }

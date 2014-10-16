@@ -60,9 +60,8 @@ class SetTypeParser extends TypeSpecificationParser
         SimpleTypeParser simpleTypeParser = new SimpleTypeParser(this);
         TypeSpec elementType = simpleTypeParser.parse(token);
         setType.setAttribute(SET_ELEMENT_TYPE, elementType);
-
         
-        if (elementType == null) {
+        if (elementType == null) {//<-- use TypeChecker.isSetElement(elementType)?
         	errorHandler.flag(typeToken, INCOMPATIBLE_TYPES, this);
         }
         

@@ -9,11 +9,20 @@ import wci.intermediate.symtabimpl.*;
 import wci.intermediate.*;
 import wci.intermediate.icodeimpl.*;
 import wci.intermediate.typeimpl.*;
-
 import static wci.frontend.pascal.PascalTokenType.*;
 import static wci.frontend.pascal.PascalErrorCode.*;
 import static wci.intermediate.symtabimpl.SymTabKeyImpl.*;
 import static wci.intermediate.symtabimpl.DefinitionImpl.*;
+import static wci.intermediate.typeimpl.TypeFormImpl.ARRAY;
+import static wci.intermediate.typeimpl.TypeFormImpl.ENUMERATION;
+import static wci.intermediate.typeimpl.TypeFormImpl.SUBRANGE;
+import static wci.intermediate.typeimpl.TypeKeyImpl.ARRAY_ELEMENT_TYPE;
+import static wci.intermediate.typeimpl.TypeKeyImpl.ARRAY_INDEX_TYPE;
+import static wci.intermediate.typeimpl.TypeKeyImpl.SET_ELEMENT_COUNT;
+import static wci.intermediate.typeimpl.TypeKeyImpl.SET_ELEMENT_TYPE;
+import static wci.intermediate.typeimpl.TypeKeyImpl.SUBRANGE_BASE_TYPE;
+import static wci.intermediate.typeimpl.TypeKeyImpl.SUBRANGE_MAX_VALUE;
+import static wci.intermediate.typeimpl.TypeKeyImpl.SUBRANGE_MIN_VALUE;
 import static wci.intermediate.icodeimpl.ICodeNodeTypeImpl.*;
 import static wci.intermediate.icodeimpl.ICodeKeyImpl.*;
 
@@ -39,7 +48,7 @@ public class ExpressionParser extends StatementParser
     // Synchronization set for starting an expression.
     static final EnumSet<PascalTokenType> EXPR_START_SET =
         EnumSet.of(PLUS, MINUS, IDENTIFIER, INTEGER, REAL, STRING,
-                   PascalTokenType.NOT, LEFT_PAREN);
+                   PascalTokenType.NOT, LEFT_PAREN, LEFT_BRACKET);
 
     /**
      * Parse an expression.
@@ -50,13 +59,86 @@ public class ExpressionParser extends StatementParser
     public ICodeNode parse(Token token)
         throws Exception
     {
-        return parseExpression(token);
+    	Token startToken = token;
+        ICodeNode rootNode = parseExpression(token);
+        
+        token = currentToken();
+        
+        // Check if the rootNode is lower bound of a subrange
+        if (token.getType() == DOT_DOT) {
+        	ICodeNode subrangeNode = ICodeFactory.createICodeNode(ICodeNodeTypeImpl.SUBRANGE);
+        	TypeSpec subrangeType = TypeFactory.createType(SUBRANGE);
+            Object minValue = null;
+            Object maxValue = null;
+            
+        	TypeSpec minType = Predefined.undefinedType;
+        	TypeSpec maxType = Predefined.undefinedType;
+        	
+        	if (rootNode != null) {
+        		minType = rootNode.getTypeSpec();
+        		if (rootNode.getType() == INTEGER_CONSTANT) {
+            		minValue = rootNode.getAttribute(VALUE);
+            	}
+        		else {
+                    errorHandler.flag(startToken, INVALID_SUBRANGE_TYPE, this);
+        		}
+        	}
+        	else {
+                errorHandler.flag(startToken, INVALID_SUBRANGE_TYPE, this);
+        	}
+        	
+            token = nextToken();  // consume the operator ..
+        	startToken = token;
+        	
+        	ICodeNode exprNode = parseExpression(token);
+        	
+        	if (exprNode != null) {
+        		maxType = exprNode.getTypeSpec();
+        		if (exprNode.getType() == INTEGER_CONSTANT) {
+        			maxValue = exprNode.getAttribute(VALUE);
+            	}
+        		else {
+                    errorHandler.flag(startToken, INVALID_SUBRANGE_TYPE, this);
+        		}
+        	}
+        	else {
+                errorHandler.flag(startToken, INVALID_SUBRANGE_TYPE, this);
+        	}
+        	
+        	// Are the min and max value types valid? Are they the same?
+            if (!TypeChecker.isSubrangeCompatible(minType) || !TypeChecker.isSubrangeCompatible(maxType) ||
+            		(minType != maxType)) {
+                errorHandler.flag(startToken, INVALID_SUBRANGE_TYPE, this);
+            }
+
+            // Min value > max value?
+            else if ((minValue != null) && (maxValue != null) &&
+                     ((Integer) minValue >= (Integer) maxValue)) {
+                errorHandler.flag(startToken, MIN_GT_MAX, this);
+            }
+            
+            subrangeType.setAttribute(SUBRANGE_BASE_TYPE, minType);
+            subrangeType.setAttribute(SUBRANGE_MIN_VALUE, minValue);
+            subrangeType.setAttribute(SUBRANGE_MAX_VALUE, maxValue);
+            
+            subrangeNode.setTypeSpec(subrangeType);
+            rootNode = subrangeNode;
+        }
+        
+        return rootNode;
     }
 
+    // Set of set relational operators.
+    private static final EnumSet<PascalTokenType> SET_REL_OPS =
+        EnumSet.of(EQUALS, NOT_EQUALS, LESS_EQUALS, GREATER_EQUALS, PascalTokenType.IN);
+    
     // Set of relational operators.
     private static final EnumSet<PascalTokenType> REL_OPS =
-        EnumSet.of(EQUALS, NOT_EQUALS, LESS_THAN, LESS_EQUALS,
-                   GREATER_THAN, GREATER_EQUALS);
+    		SET_REL_OPS.clone();
+    static {
+    	REL_OPS.add(LESS_THAN);
+    	REL_OPS.add(GREATER_THAN);
+    }
 
     // Map relational operator tokens to node types.
     private static final HashMap<PascalTokenType, ICodeNodeType>
@@ -68,6 +150,7 @@ public class ExpressionParser extends StatementParser
         REL_OPS_MAP.put(LESS_EQUALS, LE);
         REL_OPS_MAP.put(GREATER_THAN, GT);
         REL_OPS_MAP.put(GREATER_EQUALS, GE);
+        REL_OPS_MAP.put(PascalTokenType.IN, ICodeNodeTypeImpl.IN);
     };
 
     /**
@@ -111,8 +194,21 @@ public class ExpressionParser extends StatementParser
             TypeSpec simExprType = simExprNode != null
                                        ? simExprNode.getTypeSpec()
                                        : Predefined.undefinedType;
+                                       
             if (TypeChecker.areComparisonCompatible(resultType, simExprType)) {
                 resultType = Predefined.booleanType;
+            }
+            else if (SET_REL_OPS.contains(tokenType)) {
+            	if ((tokenType == PascalTokenType.IN) && TypeChecker.areContainmentCompatible(resultType, simExprType)) {
+            		resultType = Predefined.booleanType;
+            	}
+            	else if (TypeChecker.areSetCompatible(resultType, simExprType)){
+            		resultType = Predefined.booleanType;
+            	}
+            	else {
+            		errorHandler.flag(token, INCOMPATIBLE_TYPES, this);
+                    resultType = Predefined.undefinedType;
+            	}
             }
             else {
                 errorHandler.flag(token, INCOMPATIBLE_TYPES, this);
@@ -129,7 +225,7 @@ public class ExpressionParser extends StatementParser
 
     // Set of additive operators.
     private static final EnumSet<PascalTokenType> ADD_OPS =
-        EnumSet.of(PLUS, MINUS, PascalTokenType.OR);
+        EnumSet.of(PLUS, MINUS, PascalTokenType.OR, PascalTokenType.SYM_DIFF);
 
     // Map additive operator tokens to node types.
     private static final HashMap<PascalTokenType, ICodeNodeTypeImpl>
@@ -138,6 +234,7 @@ public class ExpressionParser extends StatementParser
         ADD_OPS_OPS_MAP.put(PLUS, ADD);
         ADD_OPS_OPS_MAP.put(MINUS, SUBTRACT);
         ADD_OPS_OPS_MAP.put(PascalTokenType.OR, ICodeNodeTypeImpl.OR);
+        ADD_OPS_OPS_MAP.put(PascalTokenType.SYM_DIFF, ICodeNodeTypeImpl.SYM_DIFF);
     };
 
     /**
@@ -223,6 +320,11 @@ public class ExpressionParser extends StatementParser
                         resultType = Predefined.realType;
                     }
 
+                    // Both are set operands ==> set result
+                    else if (TypeChecker.areSetCompatible(resultType, termType)) {
+                    	resultType = TypeFactory.createType(TypeFormImpl.SET);
+                    }
+                    
                     else {
                         errorHandler.flag(token, INCOMPATIBLE_TYPES, this);
                     }
@@ -235,6 +337,19 @@ public class ExpressionParser extends StatementParser
                     if (TypeChecker.areBothBoolean(resultType, termType)) {
                         resultType = Predefined.booleanType;
                     }
+                    else {
+                        errorHandler.flag(token, INCOMPATIBLE_TYPES, this);
+                    }
+
+                    break;
+                }
+                
+                case SYM_DIFF: {
+                	// Both are set operands ==> set result
+                    if (TypeChecker.areSetCompatible(resultType, termType)) {
+                    	resultType = TypeFactory.createType(TypeFormImpl.SET);
+                    }
+                    
                     else {
                         errorHandler.flag(token, INCOMPATIBLE_TYPES, this);
                     }
@@ -321,7 +436,12 @@ public class ExpressionParser extends StatementParser
                                                           factorType)) {
                         resultType = Predefined.realType;
                     }
-
+                    
+                    // Both are set operands ==> set result
+                    else if (TypeChecker.areSetCompatible(resultType, factorType)) {
+                    	resultType = TypeFactory.createType(TypeFormImpl.SET);
+                    }
+                    
                     else {
                         errorHandler.flag(token, INCOMPATIBLE_TYPES, this);
                     }
@@ -343,7 +463,7 @@ public class ExpressionParser extends StatementParser
 
                     break;
                 }
-
+                
                 case DIV:
                 case MOD: {
                     // Both operands integer ==> integer result.
@@ -481,14 +601,105 @@ public class ExpressionParser extends StatementParser
                 break;
             }
 
+            case LEFT_BRACKET: {
+            	return parseSet(token);
+            }
+            
             default: {
                 errorHandler.flag(token, UNEXPECTED_TOKEN, this);
             }
         }
-
+        
         return rootNode;
     }
 
+    // Synchronization set for the ] token.
+    private static final EnumSet<PascalTokenType> RIGHT_BRACKET_SET =
+        EnumSet.of(RIGHT_BRACKET, SEMICOLON);
+    
+    // Synchronization set for the , token.
+    private static final EnumSet<PascalTokenType> COMMA_SET = 
+    	EXPR_START_SET.clone();
+    static {
+    	COMMA_SET.add(COMMA);
+    	COMMA_SET.addAll(RIGHT_BRACKET_SET);
+    }
+    
+    /**
+     * Parse a set.
+     * @param token the current token.
+     * @return the root node of the generated parse tree.
+     * @throws Exception if an error occurred.
+     */
+    private ICodeNode parseSet(Token token)
+        throws Exception
+    {
+    	token = nextToken();  // consume the [
+
+        ICodeNode rootNode = null;
+        ExpressionParser expressionParser = new ExpressionParser(this);
+
+        // Create a SET node.
+        rootNode = ICodeFactory.createICodeNode(ICodeNodeTypeImpl.SET);
+        TypeSpec elementType = Predefined.undefinedType;
+        
+        int count = 0;
+        boolean repeat;
+    	do {
+    		// check if we have an empty set
+            if ((count != 0) || (token.getType() != RIGHT_BRACKET)) {
+                // Parse the set element expression.
+                ICodeNode exprNode = expressionParser.parse(token);
+                
+                token = currentToken();
+        		
+                TypeSpec exprType = exprNode != null ? exprNode.getTypeSpec()
+                        : Predefined.undefinedType;
+                
+                if (!TypeChecker.isSubrangeCompatible(exprType)) {
+                    errorHandler.flag(token, INCOMPATIBLE_TYPES, this);
+                }
+                else if (elementType == Predefined.undefinedType) {
+                	elementType = exprType;
+                }
+                else if (elementType.baseType() != exprType.baseType()) {
+                    errorHandler.flag(token, INCOMPATIBLE_TYPES, this);
+                }
+                
+                rootNode.addChild(exprNode);
+                count++;
+            }
+            
+            repeat = false;
+            
+            // Synchronize on the , token.
+            token = synchronize(COMMA_SET);
+            if (token.getType() == COMMA) {
+            	token = nextToken();  // consume the , token
+            	repeat = true;
+            }
+            else if (EXPR_START_SET.contains(token.getType())) {
+            	repeat = true;
+            	errorHandler.flag(token, MISSING_COMMA, this);
+            }
+            
+        } while (repeat);
+    	
+        if (token.getType() == RIGHT_BRACKET) {
+            token = nextToken();  // consume the ] token
+        }
+        else {
+            errorHandler.flag(token, MISSING_RIGHT_BRACKET, this);
+        }
+
+        TypeSpec setType = TypeFactory.createType(TypeFormImpl.SET);
+        setType.setAttribute(SET_ELEMENT_TYPE, elementType);
+        setType.setAttribute(SET_ELEMENT_COUNT, count);
+        
+        rootNode.setTypeSpec(setType);
+        return rootNode;
+    }
+    
     /**
      * Parse an identifier.
      * @param token the current token.
@@ -565,5 +776,33 @@ public class ExpressionParser extends StatementParser
         }
 
         return rootNode;
+    }
+    
+    /**
+     * Check a value of a type specification.
+     * @param token the current token.
+     * @param value the value.
+     * @param type the type specification.
+     * @return the value.
+     */
+    private Object checkValueType(Token token, Object value, TypeSpec type)
+    {
+        if (type == null) {
+            return value;
+        }
+        if (type == Predefined.integerType) {
+            return value;
+        }
+        else if (type == Predefined.charType) {
+            char ch = ((String) value).charAt(0);
+            return Character.getNumericValue(ch);
+        }
+        else if (type.getForm() == ENUMERATION) {
+            return value;
+        }
+        else {
+            errorHandler.flag(token, INVALID_SUBRANGE_TYPE, this);
+            return value;
+        }
     }
 }

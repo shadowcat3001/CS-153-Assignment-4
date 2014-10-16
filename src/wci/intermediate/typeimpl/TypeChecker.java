@@ -3,7 +3,6 @@ package wci.intermediate.typeimpl;
 import wci.intermediate.*;
 import wci.intermediate.symtabimpl.*;
 import wci.intermediate.typeimpl.*;
-
 import static wci.intermediate.typeimpl.TypeFormImpl.*;
 import static wci.intermediate.typeimpl.TypeKeyImpl.*;
 
@@ -17,6 +16,11 @@ import static wci.intermediate.typeimpl.TypeKeyImpl.*;
  */
 public class TypeChecker
 {
+	public static boolean isEnumeration(TypeSpec type)
+    {
+        return (type != null) && (type.baseType().getForm() == ENUMERATION);
+    }
+	
     /**
      * Check if a type specification is integer.
      * @param type the type specification to check.
@@ -102,6 +106,26 @@ public class TypeChecker
         return (type != null) && (type.baseType() == Predefined.charType);
     }
 
+    public static boolean isSubrangeCompatible(TypeSpec type) {
+    	return isInteger(type) || isChar(type) || isEnumeration(type);
+    }
+    
+    public static boolean isSet(TypeSpec type) {
+    	return (type != null) && (type.getForm() == SET) &&
+    			isSubrangeCompatible((TypeSpec) type.getAttribute(SET_ELEMENT_TYPE));
+    }
+    
+    public static boolean areSetCompatible(TypeSpec type1, TypeSpec type2) {
+    	return isSet(type1) && isSet(type2) &&  
+    			(((TypeSpec) type1.getAttribute(SET_ELEMENT_TYPE)).baseType() ==
+    			((TypeSpec) type2.getAttribute(SET_ELEMENT_TYPE)).baseType());
+    }
+    
+    public static boolean areContainmentCompatible(TypeSpec valueType, TypeSpec setType) {
+    	TypeSpec elementType = ((TypeSpec) setType.getAttribute(SET_ELEMENT_TYPE)).baseType();
+    	return isSet(setType) && isSubrangeCompatible(valueType) && (valueType == elementType);
+    }
+    
     /**
      * Check if two type specifications are assignment compatible.
      * @param targetType the target type specification.
@@ -130,6 +154,11 @@ public class TypeChecker
             compatible = true;
         }
 
+        // set := set
+        else if (areSetCompatible(targetType, valueType)) {
+            compatible = true;
+        }
+        
         // string := string
         else {
             compatible =

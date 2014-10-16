@@ -77,13 +77,17 @@ public class PascalSpecialSymbolToken extends PascalToken
                 break;
             }
 
-            // > or >=
+            // > or >= or ><
             case '>': {
                 currentChar = nextChar();  // consume '>';
 
                 if (currentChar == '=') {
                     text += currentChar;
                     nextChar();  // consume '='
+                }
+                else if (currentChar == '<') {
+                	text += currentChar;
+                	nextChar();  // consume '<'
                 }
 
                 break;
