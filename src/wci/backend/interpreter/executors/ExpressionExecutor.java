@@ -1,7 +1,9 @@
 package wci.backend.interpreter.executors;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashSet;
 
 import wci.intermediate.*;
 import wci.intermediate.icodeimpl.*;
@@ -93,6 +95,21 @@ public class ExpressionExecutor extends StatementExecutor
                 boolean value = (Boolean) execute(expressionNode);
                 return !value;
             }
+            
+            case SET: {
+            	 // Get the SET node's expression node child.
+            	 ArrayList<ICodeNode> children = node.getChildren();
+            	 HashSet<Integer> set = new HashSet<Integer>();
+            	 for(ICodeNode setNode : children) {
+            		set.add((Integer) execute(setNode));
+            	 }
+            	 
+            	 return set;
+            }
+            
+            case SUBRANGE: {
+            	ArrayList<ICodeNode> children = node.getChildren();
+            }
 
             // Must be a binary operator.
             default: return executeBinaryOperator(node, nodeType);
@@ -123,7 +140,12 @@ public class ExpressionExecutor extends StatementExecutor
 
         boolean integerMode = (operand1 instanceof Integer) &&
                               (operand2 instanceof Integer);
-
+        
+        boolean setMode = (operand1 instanceof HashSet) &&
+        				  (operand2 instanceof HashSet);
+        
+        boolean inMode = (operand1 instanceof Integer) &&
+        				 (operand2 instanceof HashSet);
         // ====================
         // Arithmetic operators
         // ====================
@@ -176,6 +198,27 @@ public class ExpressionExecutor extends StatementExecutor
                     }
                 }
             }
+            
+            else if(setMode){
+            	HashSet<Integer> value1 = (HashSet<Integer>) operand1;
+                HashSet<Integer> value2 = (HashSet<Integer>) operand2;
+                HashSet<Integer> output = new HashSet<Integer>();
+            	 switch (nodeType) {
+                 case ADD:      
+                	 output.addAll(value1);
+                	 output.addAll(value2);
+                	 return output;
+                 case SUBTRACT:
+                	 output.addAll(value1);
+                	 output.removeAll(value2);
+                	 return output;
+                 case MULTIPLY:
+                	 output.addAll(value1);
+                	 output.retainAll(value2);
+                	 return output;
+            	 }
+            }
+            
             else {
                 float value1 = operand1 instanceof Integer
                                    ? (Integer) operand1 : (Float) operand1;
@@ -234,6 +277,28 @@ public class ExpressionExecutor extends StatementExecutor
                 case GT: return value1 >  value2;
                 case GE: return value1 >= value2;
             }
+        }
+        else if (setMode) {
+        	HashSet<Integer> value1 = (HashSet<Integer>) operand1;
+            HashSet<Integer> value2 = (HashSet<Integer>) operand2;
+        	switch (nodeType) {
+                case EQ:
+                	 return value1.equals(value2);
+                case NE: 
+                	return !value1.equals(value2);
+                case LE:
+                	return value2.containsAll(value1);
+                case GE: 
+                	return value1.containsAll(value2);
+        	}
+        }
+        else if(inMode) {
+        	Integer value1 = (Integer) operand1;
+            HashSet<Integer> value2 = (HashSet<Integer>) operand2;
+        	switch (nodeType) {
+        		case IN: 
+        			return value2.contains(value1);
+        	}
         }
         else {
             float value1 = operand1 instanceof Integer
